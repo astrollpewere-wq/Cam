@@ -1,0 +1,384 @@
+import React, { useState, useEffect, useRef } from 'react';
+import { 
+  Camera, Grid, Power, Eye, Activity, Thermometer, 
+  AlertTriangle, Maximize2, Minimize2, Settings, 
+  Wifi, Lock, Mic, Volume2, Plus, Trash2, Save, X, Clock, Video
+} from 'lucide-react';
+
+const App = () => {
+  // --- DURUMLAR (STATE) ---
+  const [activeTab, setActiveTab] = useState('live'); // 'live' veya 'settings'
+  const [activeView, setActiveView] = useState('cam1'); // 'cam1', 'cam2', 'split' vb.
+  const [viewMode, setViewMode] = useState('normal'); 
+  const [isZoomed, setIsZoomed] = useState(false);
+  const [isAlarmActive, setIsAlarmActive] = useState(false);
+  
+  // --- AYARLAR (SETTINGS) ---
+  const [timeMode, setTimeMode] = useState('auto'); // 'auto' (telefon saati) veya 'manual'
+  const [manualDateInput, setManualDateInput] = useState("2026-03-22");
+  const [manualTimeInput, setManualTimeInput] = useState("21:30:00");
+  const [systemTime, setSystemTime] = useState(new Date());
+
+  // Varsayılan Kameralar (Ayarlardan değiştirilebilir)
+  const [cameras, setCameras] = useState([
+    { id: 'cam1', name: 'SALON', url: 'https://assets.mixkit.co/videos/preview/mixkit-security-camera-in-a-dark-hallway-32692-large.mp4' },
+    { id: 'cam2', name: 'KORİDOR', url: 'https://assets.mixkit.co/videos/preview/mixkit-top-view-of-a-street-with-people-walking-34547-large.mp4' }
+  ]);
+  const [newCamName, setNewCamName] = useState('');
+  const [newCamUrl, setNewCamUrl] = useState('');
+
+  const alarmAudioRef = useRef(null);
+  const manualTimeOffsetRef = useRef(0); // Manuel saat ile gerçek saat arasındaki farkı tutar
+
+  // --- EFEKTLER (EFFECTS) ---
+
+  // Siren Sesi Ayarı
+  useEffect(() => {
+    alarmAudioRef.current = new Audio("https://assets.mixkit.co/sfx/preview/mixkit-warning-alarm-buzzer-991.mp3");
+    alarmAudioRef.current.loop = true;
+    alarmAudioRef.current.volume = 0.15;
+  }, []);
+
+  // Zamanlayıcı Mantığı
+  useEffect(() => {
+    // Saat modu değiştiğinde farkı hesapla
+    if (timeMode === 'manual') {
+      const targetDate = new Date(`${manualDateInput}T${manualTimeInput}`);
+      if (!isNaN(targetDate.getTime())) {
+        manualTimeOffsetRef.current = targetDate.getTime() - Date.now();
+      }
+    } else {
+      manualTimeOffsetRef.current = 0;
+    }
+
+    // Saati akıt (Saniyede bir güncellenir)
+    const timer = setInterval(() => {
+      setSystemTime(new Date(Date.now() + manualTimeOffsetRef.current));
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [timeMode, manualDateInput, manualTimeInput]);
+
+  // --- YARDIMCI FONKSİYONLAR ---
+
+  const formatDateTime = (date) => {
+    const pad = (n) => n.toString().padStart(2, '0');
+    return `${pad(date.getDate())}.${pad(date.getMonth() + 1)}.${date.getFullYear()} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`;
+  };
+
+  const toggleAlarm = () => {
+    if (isAlarmActive) {
+      alarmAudioRef.current.pause();
+      alarmAudioRef.current.currentTime = 0;
+    } else {
+      alarmAudioRef.current.play().catch(e => console.log("Otomatik oynatma engellendi."));
+    }
+    setIsAlarmActive(!isAlarmActive);
+  };
+
+  const handleAddCamera = () => {
+    if (newCamName && newCamUrl) {
+      const newCam = {
+        id: `cam${Date.now()}`, // Benzersiz ID
+        name: newCamName.toUpperCase(),
+        url: newCamUrl
+      };
+      setCameras([...cameras, newCam]);
+      setNewCamName('');
+      setNewCamUrl('');
+    }
+  };
+
+  const handleDeleteCamera = (id) => {
+    if (cameras.length > 1) {
+      const updatedCameras = cameras.filter(cam => cam.id !== id);
+      setCameras(updatedCameras);
+      // Eğer silinen kamera aktifse, görünümü değiştir
+      if (activeView === id) setActiveView(updatedCameras[0].id);
+    } else {
+      alert("En az bir kamera bulunmalıdır!");
+    }
+  };
+
+  const applyManualTime = () => {
+    setTimeMode('manual');
+    alert("Manuel saat ayarlandı ve akmaya başladı!");
+  };
+
+  // Video Filtreleri
+  const getVideoFilter = () => {
+    switch(viewMode) {
+      case 'night': return 'sepia(100%) hue-rotate(70deg) saturate(300%) brightness(80%) contrast(120%)';
+      case 'thermal': return 'invert(100%) hue-rotate(180deg) saturate(300%) brightness(110%) contrast(150%)';
+      default: return 'contrast(110%) brightness(90%) grayscale(20%)'; 
+    }
+  };
+
+  // --- RENDER FONKSİYONLARI ---
+
+  // Video Bileşeni
+  const renderVideoFeed = (cam, isSplitMode = false) => {
+    if (!cam) return null;
+    return (
+      <div key={cam.id} className={`relative w-full h-full bg-black overflow-hidden ${isSplitMode ? 'border border-slate-800' : ''}`}>
+        <video 
+          src={cam.url}
+          autoPlay 
+          muted 
+          loop 
+          playsInline
+          className={`w-full h-full object-cover transition-all duration-700 ease-in-out ${!isSplitMode && isZoomed ? 'scale-150 origin-center' : 'scale-100'}`}
+          style={{ filter: getVideoFilter() }}
+        />
+        
+        {/* Sol Üst Zamanlayıcı */}
+        <div className="absolute top-2 left-2 z-30 bg-black/70 px-2 py-1 border border-white/10 rounded backdrop-blur-sm flex flex-col pointer-events-none">
+          <span className="text-red-500 font-bold text-[8px] animate-pulse flex items-center gap-1">
+            <div className="w-1.5 h-1.5 bg-red-500 rounded-full" /> REC
+          </span>
+          <span className="text-white font-mono text-[9px] whitespace-nowrap">{formatDateTime(systemTime)}</span>
+          <span className="text-emerald-400 font-mono text-[8px] mt-0.5">{cam.name}</span>
+        </div>
+
+        {/* Hedefleme (Tekli mod) */}
+        {!isSplitMode && (
+          <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 pointer-events-none opacity-40">
+            <div className={`w-12 h-12 border-2 border-emerald-500/50 rounded-full flex items-center justify-center transition-all ${isZoomed ? 'scale-150' : ''}`}>
+              <div className="w-1 h-1 bg-emerald-500 rounded-full" />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  };
+
+  // 1. EKRAN: CANLI YAYIN (ŞAKA EKRANI)
+  if (activeTab === 'live') {
+    return (
+      <div className="min-h-screen bg-neutral-950 text-slate-300 font-mono p-3 flex flex-col max-w-md mx-auto select-none relative">
+        
+        {/* Üst Bar */}
+        <div className="flex justify-between items-end mb-3 border-b border-emerald-900/40 pb-2">
+          <div>
+            <h1 className="text-[12px] font-black tracking-widest text-emerald-500 flex items-center gap-2">
+              <Camera className="text-emerald-500" size={14} /> OMEGA-NET
+            </h1>
+            <p className="text-[8px] text-emerald-700 mt-1">BAĞLANTI: GÜVENLİ</p>
+          </div>
+          <button onClick={() => setActiveTab('settings')} className="text-slate-500 hover:text-emerald-400 p-1 transition-colors">
+            <Settings size={18} />
+          </button>
+        </div>
+
+        {/* Kamera Ekranı */}
+        <div className="relative aspect-[4/3] bg-black rounded-lg border-2 border-emerald-900/50 overflow-hidden shadow-[0_0_20px_rgba(0,0,0,0.8)]">
+          <div className="absolute inset-0 z-20 pointer-events-none bg-[linear-gradient(rgba(18,16,16,0)_50%,rgba(0,0,0,0.25)_50%),linear-gradient(90deg,rgba(255,0,0,0.06),rgba(0,255,0,0.02),rgba(0,0,255,0.06))] bg-[length:100%_2px,3px_100%] opacity-40 mix-blend-overlay" />
+          
+          {activeView === 'split' ? (
+            <div className="grid grid-cols-2 grid-rows-2 w-full h-full bg-slate-900">
+               {/* 4'lü Grid - Kameraları diz, eksikse boş kutu göster */}
+              {[0, 1, 2, 3].map(i => (
+                cameras[i] ? renderVideoFeed(cameras[i], true) : (
+                   <div key={`empty-${i}`} className="w-full h-full bg-black border border-slate-800 flex items-center justify-center text-[8px] text-slate-700 font-bold">NO SIGNAL</div>
+                )
+              ))}
+            </div>
+          ) : (
+            renderVideoFeed(cameras.find(c => c.id === activeView) || cameras[0], false)
+          )}
+        </div>
+
+        {/* Kamera Seçici */}
+        <div className="flex gap-1 mt-3 bg-neutral-900 p-1 rounded-lg border border-neutral-800 overflow-x-auto no-scrollbar">
+          {cameras.map((cam, idx) => (
+            <button 
+              key={cam.id}
+              onClick={() => { setActiveView(cam.id); setIsZoomed(false); }}
+              className={`min-w-[60px] flex-1 py-2 text-[9px] font-bold rounded transition-colors whitespace-nowrap ${activeView === cam.id ? 'bg-emerald-600 text-black' : 'bg-neutral-950 text-slate-400'}`}
+            >
+              CAM {idx + 1}
+            </button>
+          ))}
+          <button 
+            onClick={() => { setActiveView('split'); setIsZoomed(false); }}
+            className={`min-w-[40px] flex justify-center items-center py-2 rounded transition-colors ${activeView === 'split' ? 'bg-blue-600 text-white' : 'bg-neutral-950 text-blue-400 border border-blue-900/50'}`}
+          >
+            <Grid size={14} />
+          </button>
+        </div>
+
+        {/* Modlar */}
+        <div className="grid grid-cols-3 gap-2 mt-4">
+          <button onClick={() => setViewMode('normal')} className={`flex flex-col items-center gap-1 py-3 rounded border transition-all ${viewMode === 'normal' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500' : 'bg-neutral-900/50 border-neutral-800 text-slate-500'}`}>
+            <Eye size={16} /> <span className="text-[9px] font-bold uppercase">Normal</span>
+          </button>
+          <button onClick={() => setViewMode('night')} className={`flex flex-col items-center gap-1 py-3 rounded border transition-all ${viewMode === 'night' ? 'bg-green-500/20 text-green-400 border-green-500' : 'bg-neutral-900/50 border-neutral-800 text-slate-500'}`}>
+            <Activity size={16} /> <span className="text-[9px] font-bold uppercase">Gece</span>
+          </button>
+          <button onClick={() => setViewMode('thermal')} className={`flex flex-col items-center gap-1 py-3 rounded border transition-all ${viewMode === 'thermal' ? 'bg-orange-500/20 text-orange-400 border-orange-500' : 'bg-neutral-900/50 border-neutral-800 text-slate-500'}`}>
+            <Thermometer size={16} /> <span className="text-[9px] font-bold uppercase">Termal</span>
+          </button>
+        </div>
+
+        {/* Aksiyon Paneli */}
+        <div className="mt-6 flex flex-col gap-2 flex-grow">
+          <div className="grid grid-cols-2 gap-2">
+            <button 
+              onClick={() => activeView !== 'split' && setIsZoomed(!isZoomed)}
+              className={`flex items-center gap-3 px-3 py-4 border rounded-lg transition ${activeView === 'split' ? 'opacity-30' : (isZoomed ? 'bg-blue-900/40 border-blue-500 text-blue-400' : 'bg-neutral-900 border-neutral-700 text-slate-300')}`}
+            >
+              {isZoomed ? <Minimize2 size={18} /> : <Maximize2 size={18} />}
+              <div className="text-left">
+                <p className="text-[10px] font-bold">{isZoomed ? 'ZOOM ÇIK' : 'ZOOM GİR'}</p>
+              </div>
+            </button>
+
+            <button 
+              onClick={toggleAlarm}
+              className={`flex items-center gap-3 px-3 py-4 border rounded-lg transition relative overflow-hidden ${isAlarmActive ? 'bg-red-900/40 border-red-500 text-red-500' : 'bg-neutral-900 border-neutral-700 text-slate-300'}`}
+            >
+              {isAlarmActive && <div className="absolute inset-0 bg-red-500/10 animate-pulse pointer-events-none" />}
+              <AlertTriangle size={18} className={isAlarmActive ? 'animate-bounce' : ''} />
+              <div className="text-left z-10">
+                <p className="text-[10px] font-bold">{isAlarmActive ? 'SİREN SUS' : 'SİREN ÇAL'}</p>
+              </div>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 2. EKRAN: AYARLAR (YÖNETİM PANELİ)
+  return (
+    <div className="min-h-screen bg-slate-900 text-slate-200 font-sans p-4 flex flex-col max-w-md mx-auto">
+      <div className="flex justify-between items-center mb-6 pb-4 border-b border-slate-700">
+        <h2 className="text-lg font-bold flex items-center gap-2">
+          <Settings size={20} className="text-emerald-500" /> Sistem Ayarları
+        </h2>
+        <button 
+          onClick={() => setActiveTab('live')}
+          className="bg-emerald-600 hover:bg-emerald-500 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition"
+        >
+          <Camera size={16} /> Canlıya Dön
+        </button>
+      </div>
+
+      <div className="space-y-6 overflow-y-auto pb-10">
+        
+        {/* ZAMAN AYARLARI */}
+        <div className="bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700">
+          <h3 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2">
+            <Clock size={16} /> Zamanlayıcı Ayarları
+          </h3>
+          
+          <div className="flex gap-2 mb-4 bg-slate-900 p-1 rounded-lg">
+            <button 
+              onClick={() => setTimeMode('auto')}
+              className={`flex-1 py-2 text-xs font-bold rounded ${timeMode === 'auto' ? 'bg-emerald-600 text-white' : 'text-slate-400'}`}
+            >
+              Otomatik (Cihaz)
+            </button>
+            <button 
+              onClick={() => setTimeMode('manual')}
+              className={`flex-1 py-2 text-xs font-bold rounded ${timeMode === 'manual' ? 'bg-blue-600 text-white' : 'text-slate-400'}`}
+            >
+              Manuel (Özel)
+            </button>
+          </div>
+
+          {timeMode === 'manual' && (
+            <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+              <div>
+                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">Tarih</label>
+                <input 
+                  type="date" 
+                  value={manualDateInput}
+                  onChange={(e) => setManualDateInput(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[10px] text-slate-400 mb-1 uppercase tracking-wider">Saat</label>
+                <input 
+                  type="time" 
+                  step="1"
+                  value={manualTimeInput}
+                  onChange={(e) => setManualTimeInput(e.target.value)}
+                  className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-blue-500 outline-none"
+                />
+              </div>
+              <button 
+                onClick={applyManualTime}
+                className="w-full bg-blue-600 hover:bg-blue-500 text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2"
+              >
+                <Save size={14} /> Saati Başlat
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* KAMERA YÖNETİMİ */}
+        <div className="bg-slate-800 p-4 rounded-xl shadow-lg border border-slate-700">
+          <h3 className="text-sm font-bold text-emerald-400 mb-3 flex items-center gap-2">
+            <Video size={16} /> Kamera (Video) Yönetimi
+          </h3>
+          
+          {/* Kamera Listesi */}
+          <div className="space-y-2 mb-4">
+            {cameras.map((cam, idx) => (
+              <div key={cam.id} className="flex items-center justify-between bg-slate-900 p-2 rounded-lg border border-slate-700">
+                <div className="truncate pr-2">
+                  <p className="text-xs font-bold text-white">CAM {idx + 1}: {cam.name}</p>
+                  <p className="text-[9px] text-slate-500 truncate max-w-[200px]">{cam.url}</p>
+                </div>
+                <button 
+                  onClick={() => handleDeleteCamera(cam.id)}
+                  className="p-2 text-red-400 hover:bg-red-400/20 rounded-lg transition"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {/* Yeni Kamera Ekleme */}
+          <div className="border-t border-slate-700 pt-4 mt-2">
+            <h4 className="text-xs font-bold text-slate-300 mb-2">Yeni Kamera Ekle (Maks 4 önerilir)</h4>
+            <div className="space-y-2">
+              <input 
+                type="text" 
+                placeholder="Kamera Adı (Örn: BAHÇE)" 
+                value={newCamName}
+                onChange={(e) => setNewCamName(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-emerald-500 outline-none placeholder:text-slate-600"
+              />
+              <input 
+                type="text" 
+                placeholder="Video Linki (.mp4, .mov)" 
+                value={newCamUrl}
+                onChange={(e) => setNewCamUrl(e.target.value)}
+                className="w-full bg-slate-900 border border-slate-700 rounded p-2 text-sm text-white focus:border-emerald-500 outline-none placeholder:text-slate-600"
+              />
+              <button 
+                onClick={handleAddCamera}
+                disabled={!newCamName || !newCamUrl}
+                className="w-full bg-slate-700 hover:bg-slate-600 disabled:opacity-50 disabled:cursor-not-allowed text-white py-2 rounded-lg text-sm font-bold flex items-center justify-center gap-2 transition"
+              >
+                <Plus size={14} /> Kutuya Ekle
+              </button>
+            </div>
+            <p className="text-[10px] text-slate-500 mt-2 italic">
+              Not: İnternetteki .mp4 uzantılı direkt linkleri veya bulut depolama linklerini kullanın.
+            </p>
+          </div>
+        </div>
+
+      </div>
+    </div>
+  );
+};
+
+export default App;
+
+                  
